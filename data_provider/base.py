@@ -1775,7 +1775,7 @@ class DataFetcherManager:
         stock_code = normalize_stock_code(stock_code)
         market = _market_tag(stock_code)
         is_etf = _is_etf_code(stock_code)
-        if market in {"us", "hk"}:
+        if market == "us":
             return self._build_market_not_supported(
                 market=market,
                 reason="market not supported",

@@ -142,6 +142,7 @@ beforeEach(() => {
   mockGetSkills.mockResolvedValue({
     skills: [
       { id: 'bull_trend', name: '趋势分析', description: '测试技能' },
+      { id: 'value_investing', name: '价值投资', description: '价值投资专家' },
     ],
     default_skill_id: 'bull_trend',
   });
@@ -164,6 +165,16 @@ describe('ChatPage', () => {
     expect(screen.getByTestId('chat-message-scroll')).toBeInTheDocument();
     expect(mockLoadInitialSession).toHaveBeenCalled();
     expect(mockClearCompletionBadge).toHaveBeenCalled();
+  });
+
+  it('shows the value investing quick question when the skill is available', async () => {
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <ChatPage />
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('用价值投资分析贵州茅台')).toBeInTheDocument();
   });
 
   it('switches session when clicking anywhere on the session card', async () => {

@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### 修复
 
+- 💎 **问股新增“价值投资”策略选项** — 新增内置策略文件 `strategies/value_investing.yaml`，通过现有技能加载链路让 Web/Bot/API 的问股策略列表自动出现“价值投资”选项；价值投资专家提示词从策略文件读取，重点约束企业质量、估值安全边际、现金流、分红与风险排查，并在问股页空状态补充了对应快捷示例。
+- 🗄️ **A 股 / 港股财报摘要支持 MySQL 优先读取** — `data_provider/fundamental_adapter.py` 现可在配置 `FUNDAMENTAL_MYSQL_*` 后优先从 MySQL 读取 A 股与港股最新财报摘要与增长指标（`financial_report` / `growth`），未命中、连库失败或字段缺失时自动回退到 AkShare；`get_fundamental_context` 同步放开港股基本面聚合，但港股仍只开放估值与财务摘要，资金流 / 龙虎榜 / 板块榜继续保持 `not_supported`，以维持现有 fail-open 语义。
 - 📦 **恢复 LiteLLM 官方 PyPI 安装并锁定安全上限** — `requirements.txt` 重新使用 `pip install litellm` 的官方 PyPI 安装路径，并在保留历史最低要求 `>=1.80.10` 的同时增加 `<1.82.7` 的安全上限，避免误装已被移除的 `1.82.7` / `1.82.8` 风险版本；Windows 桌面打包脚本也同步回退到标准 `pip install -r requirements.txt` 链路，减少特殊下载分支带来的维护成本。
 - 📨 **Telegram Markdown 解析失败回退纯文本**（fixes #850）— `src/notification_sender/telegram_sender.py` 现在会在 Telegram 返回 `HTTP 400` 且包含 `can't parse entities` / Markdown 解析错误时，自动去掉 `parse_mode` 后重试纯文本发送，避免 `*ST` 等正文内容直接导致整条通知失败。
 - 🔢 **A 股同码实时行情保留交易所提示**（fixes #852）— `DataFetcherManager` 与 `TushareFetcher` 现在会保留 `SZ000001` / `000001.SZ` 这类显式沪深提示，旧版 Tushare 实时行情降级分支不再把深市 `000001` 误判成 `sh000001` 上证指数。

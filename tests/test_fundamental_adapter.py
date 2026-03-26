@@ -101,7 +101,7 @@ class TestFundamentalAdapter(unittest.TestCase):
             }
         )
 
-        with patch.object(
+        with patch.object(adapter, "_load_mysql_financial_snapshot", return_value=(None, None)), patch.object(
             adapter,
             "_call_df_candidates",
             side_effect=[
@@ -127,6 +127,117 @@ class TestFundamentalAdapter(unittest.TestCase):
         self.assertEqual(len(events), 2)  # duplicate + future day filtered
         self.assertEqual(dividend_payload.get("ttm_event_count"), 1)
         self.assertAlmostEqual(dividend_payload.get("ttm_cash_dividend_per_share"), 0.3, places=6)
+
+    def test_fundamental_bundle_prefers_mysql_financial_snapshot(self) -> None:
+        adapter = AkshareFundamentalAdapter()
+        mysql_payload = {
+            "growth": {
+                "revenue_yoy": 21.5,
+                "net_profit_yoy": 18.8,
+                "roe": 22.1,
+                "gross_margin": 54.3,
+            },
+            "financial_report": {
+                "report_date": "2024-12-31",
+                "revenue": 8888.0,
+                "net_profit_parent": 2222.0,
+                "operating_cash_flow": 3333.0,
+                "roe": 22.1,
+            },
+            "meta": {"source": "mysql:ashare_finance.v_latest_financial_report"},
+        }
+        forecast_df = pd.DataFrame({"股票代码": ["600519"], "预告": ["预增"]})
+        quick_df = pd.DataFrame({"股票代码": ["600519"], "快报": ["快报摘要"]})
+
+        with patch.object(adapter, "_load_mysql_financial_snapshot", return_value=(mysql_payload, None)), patch.object(
+            adapter,
+            "_call_df_candidates",
+            side_effect=[
+                (forecast_df, "stock_yjyg_em", []),
+                (quick_df, "stock_yjkb_em", []),
+                (None, None, []),
+                (None, None, []),
+                (None, None, []),
+            ],
+        ):
+            result = adapter.get_fundamental_bundle("600519")
+
+        self.assertEqual(result["growth"]["revenue_yoy"], 21.5)
+        self.assertEqual(result["growth"]["net_profit_yoy"], 18.8)
+        self.assertEqual(result["earnings"]["financial_report"]["revenue"], 8888.0)
+        self.assertEqual(result["earnings"]["financial_report"]["report_date"], "2024-12-31")
+        self.assertEqual(result["earnings"]["forecast_summary"], "预增")
+        self.assertIn("growth:mysql:ashare_finance.v_latest_financial_report", result["source_chain"])
+
+    def test_fundamental_bundle_falls_back_to_akshare_when_mysql_lookup_fails(self) -> None:
+        adapter = AkshareFundamentalAdapter()
+        fin_df = pd.DataFrame(
+            {
+                "股票代码": ["600519"],
+                "报告期": ["2024-09-30"],
+                "营业总收入": [1234.0],
+                "归母净利润": [456.0],
+                "经营活动产生的现金流量净额": [789.0],
+                "净资产收益率": [15.6],
+                "营业收入同比": [11.1],
+                "净利润同比": [7.2],
+            }
+        )
+
+        with patch.object(adapter, "_load_mysql_financial_snapshot", return_value=(None, "mysql_financial_lookup:OperationalError")), patch.object(
+            adapter,
+            "_call_df_candidates",
+            side_effect=[
+                (fin_df, "stock_financial_abstract", []),
+                (None, None, []),
+                (None, None, []),
+                (None, None, []),
+                (None, None, []),
+                (None, None, []),
+            ],
+        ):
+            result = adapter.get_fundamental_bundle("600519")
+
+        self.assertEqual(result["growth"]["revenue_yoy"], 11.1)
+        self.assertEqual(result["earnings"]["financial_report"]["revenue"], 1234.0)
+        self.assertIn("mysql_financial_lookup:OperationalError", result["errors"])
+
+    def test_fundamental_bundle_supports_hk_mysql_snapshot(self) -> None:
+        adapter = AkshareFundamentalAdapter()
+        mysql_payload = {
+            "growth": {
+                "revenue_yoy": 6.2,
+                "net_profit_yoy": 4.1,
+                "roe": None,
+                "gross_margin": None,
+            },
+            "financial_report": {
+                "report_date": "2024-12-31",
+                "revenue": 660000.0,
+                "net_profit_parent": 197000.0,
+                "operating_cash_flow": None,
+                "roe": None,
+            },
+            "meta": {"source": "mysql:hkfin.v_latest_financial_report"},
+        }
+
+        with patch.object(adapter, "_load_mysql_financial_snapshot", return_value=(mysql_payload, None)), patch.object(
+            adapter,
+            "_call_df_candidates",
+            side_effect=[
+                (None, None, []),
+                (None, None, []),
+                (None, None, []),
+                (None, None, []),
+                (None, None, []),
+            ],
+        ):
+            result = adapter.get_fundamental_bundle("00700.HK")
+
+        self.assertEqual(result["earnings"]["financial_report"]["report_date"], "2024-12-31")
+        self.assertEqual(result["earnings"]["financial_report"]["revenue"], 660000.0)
+        self.assertEqual(result["growth"]["revenue_yoy"], 6.2)
+        self.assertIn("growth:mysql:hkfin.v_latest_financial_report", result["source_chain"])
 
     def test_build_dividend_payload_returns_empty_when_code_not_matched(self) -> None:
         now = datetime.now().strftime("%Y-%m-%d")

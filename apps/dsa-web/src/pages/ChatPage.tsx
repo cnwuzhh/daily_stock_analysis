@@ -27,6 +27,7 @@ import { getReportText } from '../utils/reportLanguage';
 // Quick question examples shown on empty state
 const QUICK_QUESTIONS = [
   { label: '用缠论分析茅台', skill: 'chan_theory' },
+  { label: '用价值投资分析贵州茅台', skill: 'value_investing' },
   { label: '波浪理论看宁德时代', skill: 'wave_theory' },
   { label: '分析比亚迪趋势', skill: 'bull_trend' },
   { label: '箱体震荡技能看中芯国际', skill: 'box_oscillation' },

@@ -690,6 +690,15 @@ class Config:
     fundamental_cache_ttl_seconds: int = 120
     # 基本面缓存最大条目数（避免长时间运行内存增长）
     fundamental_cache_max_entries: int = 256
+    fundamental_mysql_enabled: bool = False
+    fundamental_mysql_host: str = "127.0.0.1"
+    fundamental_mysql_port: int = 3306
+    fundamental_mysql_user: Optional[str] = None
+    fundamental_mysql_password: Optional[str] = None
+    fundamental_mysql_database: str = "ashare_finance"
+    fundamental_mysql_hk_database: str = "hkfin"
+    fundamental_mysql_charset: str = "utf8mb4"
+    fundamental_mysql_connect_timeout_seconds: float = 0.8
 
     # === Portfolio PR2: import/risk/fx settings ===
     portfolio_risk_concentration_alert_pct: float = 35.0
@@ -1320,6 +1329,26 @@ class Config:
                 256,
                 field_name='FUNDAMENTAL_CACHE_MAX_ENTRIES',
                 minimum=1,
+            ),
+            fundamental_mysql_enabled=parse_env_bool(os.getenv('FUNDAMENTAL_MYSQL_ENABLED'), False),
+            fundamental_mysql_host=os.getenv('FUNDAMENTAL_MYSQL_HOST', '127.0.0.1'),
+            fundamental_mysql_port=parse_env_int(
+                os.getenv('FUNDAMENTAL_MYSQL_PORT'),
+                3306,
+                field_name='FUNDAMENTAL_MYSQL_PORT',
+                minimum=1,
+                maximum=65535,
+            ),
+            fundamental_mysql_user=os.getenv('FUNDAMENTAL_MYSQL_USER'),
+            fundamental_mysql_password=os.getenv('FUNDAMENTAL_MYSQL_PASSWORD'),
+            fundamental_mysql_database=os.getenv('FUNDAMENTAL_MYSQL_DATABASE', 'ashare_finance'),
+            fundamental_mysql_hk_database=os.getenv('FUNDAMENTAL_MYSQL_HK_DATABASE', 'hkfin'),
+            fundamental_mysql_charset=os.getenv('FUNDAMENTAL_MYSQL_CHARSET', 'utf8mb4'),
+            fundamental_mysql_connect_timeout_seconds=parse_env_float(
+                os.getenv('FUNDAMENTAL_MYSQL_CONNECT_TIMEOUT_SECONDS'),
+                0.8,
+                field_name='FUNDAMENTAL_MYSQL_CONNECT_TIMEOUT_SECONDS',
+                minimum=0.1,
             ),
             portfolio_risk_concentration_alert_pct=parse_env_float(
                 os.getenv('PORTFOLIO_RISK_CONCENTRATION_ALERT_PCT'),
