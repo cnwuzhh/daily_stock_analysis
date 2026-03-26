@@ -7,6 +7,8 @@ FROM node:20-slim AS web-builder
 
 WORKDIR /app/apps/dsa-web
 
+RUN npm config set registry https://registry.npmmirror.com
+
 COPY apps/dsa-web/package.json apps/dsa-web/package-lock.json ./
 RUN npm ci
 
@@ -23,10 +25,14 @@ WORKDIR /app
 ENV TZ=Asia/Shanghai
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
+RUN sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g; s|security.debian.org|mirrors.tuna.tsinghua.edu.cn/debian-security|g' /etc/apt/sources.list.d/debian.sources
+
 # 安装系统依赖（wkhtmltopdf 含 wkhtmltoimage，用于 Markdown 转图片 Issue #289）
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     curl \
+    git \
+    openssh-client \
     wkhtmltopdf \
     fontconfig \
     libjpeg62-turbo \
@@ -38,7 +44,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 
 # 安装 Python 依赖
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
 
 # 复制应用代码
 COPY *.py ./

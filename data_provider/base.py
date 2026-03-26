@@ -1478,6 +1478,7 @@ class DataFetcherManager:
         task: Callable[[], Any],
         timeout_seconds: float,
         task_name: str,
+        timeout_fallback: Optional[Callable[[], Any]] = None,
     ) -> Tuple[Optional[Any], Optional[str], int]:
         """
         Execute a task in a short-lived thread and enforce a timeout.
@@ -1517,7 +1518,13 @@ class DataFetcherManager:
             return None, str(exc), int((time.time() - start) * 1000)
         worker.join(timeout=timeout_value)
         if worker.is_alive():
-            return None, f"{task_name} timeout", int(timeout_value * 1000)
+            fallback_value = None
+            if timeout_fallback is not None:
+                try:
+                    fallback_value = timeout_fallback()
+                except Exception:
+                    fallback_value = None
+            return fallback_value, f"{task_name} timeout", int(timeout_value * 1000)
         if "value" in error_holder:
             return None, str(error_holder["value"]), int((time.time() - start) * 1000)
         return result_holder.get("value"), None, int((time.time() - start) * 1000)
@@ -1527,6 +1534,7 @@ class DataFetcherManager:
         task: Callable[[], Any],
         timeout_seconds: float,
         task_name: str,
+        timeout_fallback: Optional[Callable[[], Any]] = None,
     ) -> Tuple[Optional[Any], Optional[str], int]:
         """
         Execute a task with bounded budget and best-effort retries.
@@ -1543,11 +1551,18 @@ class DataFetcherManager:
         for _ in range(attempts):
             if remaining_seconds <= 0:
                 break
-            result, err, cost_ms = self._run_with_timeout(task, remaining_seconds, task_name)
+            result, err, cost_ms = self._run_with_timeout(
+                task,
+                remaining_seconds,
+                task_name,
+                timeout_fallback=timeout_fallback,
+            )
             total_cost_ms += cost_ms
             remaining_seconds = max(0.0, remaining_seconds - cost_ms / 1000)
             if err is None:
                 return result, None, total_cost_ms
+            if result is not None and "timeout" in str(err).lower():
+                return result, err, total_cost_ms
             last_error = err
             if remaining_seconds <= 0:
                 break
@@ -1868,6 +1883,7 @@ class DataFetcherManager:
                 lambda: self._fundamental_adapter.get_fundamental_bundle(stock_code),
                 bundle_timeout,
                 "fundamental_bundle",
+                timeout_fallback=lambda: self._fundamental_adapter.get_cached_partial_bundle(stock_code),
             )
             _consume_budget(bundle_ms)
             if not isinstance(bundle_payload, dict):

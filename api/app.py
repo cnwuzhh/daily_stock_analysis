@@ -32,15 +32,19 @@ from api.middlewares.auth import add_auth_middleware
 from api.middlewares.error_handler import add_error_handlers
 from api.v1.schemas.common import HealthResponse
 from src.services.system_config_service import SystemConfigService
+from src.storage import DatabaseManager
 
 
 @asynccontextmanager
 async def app_lifespan(app: FastAPI):
     """Initialize and release shared services for the app lifecycle."""
+    app.state.db_manager = DatabaseManager.get_instance()
     app.state.system_config_service = SystemConfigService()
     try:
         yield
     finally:
+        if hasattr(app.state, "db_manager"):
+            delattr(app.state, "db_manager")
         if hasattr(app.state, "system_config_service"):
             delattr(app.state, "system_config_service")
 

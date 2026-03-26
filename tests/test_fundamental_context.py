@@ -188,6 +188,47 @@ class TestFundamentalContext(unittest.TestCase):
         self.assertIn("capital_flow", ctx)
         self.assertIn("dragon_tiger", ctx)
 
+    def test_fundamental_context_keeps_partial_bundle_payload_on_timeout(self) -> None:
+        manager = DataFetcherManager(fetchers=[])
+        cfg = SimpleNamespace(
+            enable_fundamental_pipeline=True,
+            fundamental_cache_ttl_seconds=120,
+            fundamental_stage_timeout_seconds=1.5,
+            fundamental_fetch_timeout_seconds=0.8,
+            fundamental_retry_max=1,
+        )
+        quote = SimpleNamespace(
+            pe_ratio=19.5,
+            pb_ratio=7.7,
+            total_mv=1.7e12,
+            circ_mv=1.7e12,
+            source=SimpleNamespace(value="tencent"),
+        )
+        partial_bundle = {
+            "status": "partial",
+            "growth": {"revenue_yoy": 9.8},
+            "earnings": {"financial_report": {"report_date": "2025-09-30", "revenue": 1309.0}},
+            "institution": {},
+            "source_chain": ["growth:mysql:ashare_finance.v_latest_financial_report"],
+            "errors": [],
+        }
+
+        with patch("src.config.get_config", return_value=cfg), \
+                patch.object(manager, "get_realtime_quote", return_value=quote), \
+                patch.object(manager, "_run_with_retry") as mock_retry, \
+                patch.object(manager, "get_capital_flow_context", return_value={"status": "failed", "source_chain": []}), \
+                patch.object(manager, "get_dragon_tiger_context", return_value={"status": "failed", "source_chain": []}), \
+                patch.object(manager, "get_board_context", return_value={"status": "failed", "source_chain": []}):
+            mock_retry.side_effect = [
+                (quote, None, 50),
+                (partial_bundle, "fundamental_bundle timeout", 700),
+            ]
+            ctx = manager.get_fundamental_context("600519", budget_seconds=1.5)
+
+        self.assertEqual(ctx["earnings"]["status"], "ok")
+        self.assertEqual(ctx["earnings"]["data"]["financial_report"]["report_date"], "2025-09-30")
+        self.assertIn("fundamental_bundle timeout", ctx["earnings"]["errors"])
+
     def test_fundamental_context_derives_ttm_dividend_yield_from_quote_price(self) -> None:
         manager = DataFetcherManager(fetchers=[])
         cfg = SimpleNamespace(

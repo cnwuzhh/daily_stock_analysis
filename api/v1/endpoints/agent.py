@@ -6,6 +6,7 @@ Agent API endpoints.
 import asyncio
 import json
 import logging
+import re
 import uuid
 from typing import Any, Dict, List, Optional
 
@@ -39,6 +40,60 @@ TOOL_DISPLAY_NAMES: Dict[str, str] = {
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+_ASK_STOCK_CODE_RE = re.compile(r'(?<!\d)((?:[03648]\d{5}|92\d{4}))(?!\d)')
+
+
+def _extract_prefetch_stock_code(message: str, context: Optional[Dict[str, Any]] = None) -> str:
+    if isinstance(context, dict):
+        existing_code = str(context.get("stock_code", "") or "").strip()
+        if existing_code:
+            return existing_code
+    text = str(message or "")
+    match = _ASK_STOCK_CODE_RE.search(text)
+    if match:
+        return match.group(1)
+    hk_match = re.search(r'(?<![a-zA-Z])(hk\d{5})(?!\d)', text, re.IGNORECASE)
+    if hk_match:
+        return hk_match.group(1).upper()
+
+    try:
+        from src.services.name_to_code_resolver import resolve_name_to_code
+
+        resolved = resolve_name_to_code(text)
+        if resolved:
+            return resolved
+    except Exception as exc:
+        logger.debug("Value investing name-to-code resolution failed for %r: %s", text, exc)
+
+    return ""
+
+
+def _prefetch_value_investing_context(context: Dict[str, Any], message: str) -> Dict[str, Any]:
+    from src.agent.factory import get_tool_registry
+
+    enriched = dict(context)
+    stock_code = _extract_prefetch_stock_code(message, enriched)
+    if not stock_code:
+        return enriched
+    enriched.setdefault("stock_code", stock_code)
+
+    try:
+        stock_info = get_tool_registry().execute("get_stock_info", stock_code=stock_code)
+    except Exception as exc:
+        logger.warning("Value investing prefetch failed for %s: %s", stock_code, exc)
+        enriched.setdefault("prefetch_errors", []).append(f"stock_info_prefetch:{type(exc).__name__}")
+        return enriched
+
+    if isinstance(stock_info, dict):
+        enriched.setdefault("stock_code", stock_info.get("code") or stock_code)
+        if stock_info.get("name"):
+            enriched.setdefault("stock_name", stock_info["name"])
+        if stock_info.get("fundamental_context"):
+            enriched["fundamental_context"] = stock_info["fundamental_context"]
+        enriched["stock_info"] = stock_info
+    return enriched
 
 class ChatRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
@@ -167,6 +222,8 @@ async def agent_chat(request: ChatRequest):
         ctx = dict(request.context or {})
         if skills is not None:
             ctx["skills"] = skills
+        if skills and "value_investing" in skills:
+            ctx = _prefetch_value_investing_context(ctx, request.message)
 
         # Offload the blocking call to a thread to avoid blocking the event loop.
         loop = asyncio.get_running_loop()
@@ -302,6 +359,8 @@ async def agent_chat_stream(request: ChatRequest):
     stream_ctx = dict(request.context or {})
     if skills is not None:
         stream_ctx["skills"] = skills
+    if skills and "value_investing" in skills:
+        stream_ctx = _prefetch_value_investing_context(stream_ctx, request.message)
 
     def progress_callback(event: dict):
         # Enrich tool events with display names

@@ -276,6 +276,25 @@ def _extract_latest_row(df: pd.DataFrame, stock_code: str) -> Optional[pd.Series
 class AkshareFundamentalAdapter:
     """AkShare adapter for fundamentals, capital flow and dragon-tiger signals."""
 
+    def __init__(self) -> None:
+        self._partial_bundle_cache: Dict[str, Dict[str, Any]] = {}
+
+    def get_cached_partial_bundle(self, stock_code: str) -> Optional[Dict[str, Any]]:
+        cached = self._partial_bundle_cache.get(_normalize_code(stock_code))
+        if isinstance(cached, dict):
+            return dict(cached)
+        return None
+
+    def _cache_partial_bundle(self, stock_code: str, result: Dict[str, Any]) -> None:
+        self._partial_bundle_cache[_normalize_code(stock_code)] = {
+            "status": result.get("status", "partial"),
+            "growth": dict(result.get("growth", {})) if isinstance(result.get("growth"), dict) else {},
+            "earnings": dict(result.get("earnings", {})) if isinstance(result.get("earnings"), dict) else {},
+            "institution": dict(result.get("institution", {})) if isinstance(result.get("institution"), dict) else {},
+            "source_chain": list(result.get("source_chain", [])) if isinstance(result.get("source_chain"), list) else [],
+            "errors": list(result.get("errors", [])) if isinstance(result.get("errors"), list) else [],
+        }
+
     def _load_mysql_financial_snapshot(self, stock_code: str) -> Tuple[Optional[Dict[str, Dict[str, Any]]], Optional[str]]:
         from src.config import get_config
 
@@ -404,6 +423,7 @@ LIMIT 1
 
         payload["meta"] = {
             "source": f"mysql:{database}.v_latest_financial_report",
+            "financial_only": True,
         }
         return payload, None
 
@@ -458,6 +478,7 @@ LIMIT 1
             mysql_meta = mysql_payload.get("meta")
             if isinstance(mysql_meta, dict) and mysql_meta.get("source"):
                 result["source_chain"].append(f"growth:{mysql_meta['source']}")
+            self._cache_partial_bundle(stock_code, result)
 
         # Financial indicators
         need_akshare_financial = not result["growth"] or not result["earnings"].get("financial_report")
@@ -506,79 +527,89 @@ LIMIT 1
                         )
                     if fin_source:
                         result["source_chain"].append(f"growth:{fin_source}")
+                    self._cache_partial_bundle(stock_code, result)
 
-        # Earnings forecast
-        forecast_df, forecast_source, forecast_errors = self._call_df_candidates([
-            ("stock_yjyg_em", {"symbol": stock_code}),
-            ("stock_yjyg_em", {}),
-            ("stock_yjbb_em", {"symbol": stock_code}),
-            ("stock_yjbb_em", {}),
-        ])
-        result["errors"].extend(forecast_errors)
-        if forecast_df is not None:
-            row = _extract_latest_row(forecast_df, stock_code)
-            if row is not None:
-                result["earnings"]["forecast_summary"] = _safe_str(
-                    _pick_by_keywords(row, ["预告", "业绩变动", "内容", "摘要", "公告"])
-                )[:200]
-                result["source_chain"].append(f"earnings_forecast:{forecast_source}")
+        mysql_financial_only = bool(isinstance(mysql_payload, dict) and mysql_payload.get("meta", {}).get("financial_only"))
 
-        # Earnings quick report
-        quick_df, quick_source, quick_errors = self._call_df_candidates([
-            ("stock_yjkb_em", {"symbol": stock_code}),
-            ("stock_yjkb_em", {}),
-        ])
-        result["errors"].extend(quick_errors)
-        if quick_df is not None:
-            row = _extract_latest_row(quick_df, stock_code)
-            if row is not None:
-                result["earnings"]["quick_report_summary"] = _safe_str(
-                    _pick_by_keywords(row, ["快报", "摘要", "公告", "说明"])
-                )[:200]
-                result["source_chain"].append(f"earnings_quick:{quick_source}")
+        if not mysql_financial_only:
+            # Earnings forecast
+            forecast_df, forecast_source, forecast_errors = self._call_df_candidates([
+                ("stock_yjyg_em", {"symbol": stock_code}),
+                ("stock_yjyg_em", {}),
+                ("stock_yjbb_em", {"symbol": stock_code}),
+                ("stock_yjbb_em", {}),
+            ])
+            result["errors"].extend(forecast_errors)
+            if forecast_df is not None:
+                row = _extract_latest_row(forecast_df, stock_code)
+                if row is not None:
+                    result["earnings"]["forecast_summary"] = _safe_str(
+                        _pick_by_keywords(row, ["预告", "业绩变动", "内容", "摘要", "公告"])
+                    )[:200]
+                    result["source_chain"].append(f"earnings_forecast:{forecast_source}")
+                    self._cache_partial_bundle(stock_code, result)
 
-        # Dividend details (cash dividend, pre-tax)
-        dividend_df, dividend_source, dividend_errors = self._call_df_candidates([
-            ("stock_fhps_detail_em", {"symbol": stock_code}),
-            ("stock_history_dividend_detail", {"symbol": stock_code, "indicator": "分红", "date": ""}),
-            ("stock_dividend_cninfo", {"symbol": stock_code}),
-        ])
-        result["errors"].extend(dividend_errors)
-        if dividend_df is not None:
-            dividend_payload = _build_dividend_payload(dividend_df, stock_code, max_events=5)
-            if dividend_payload:
-                result["earnings"]["dividend"] = dividend_payload
-                result["source_chain"].append(f"dividend:{dividend_source}")
+            # Earnings quick report
+            quick_df, quick_source, quick_errors = self._call_df_candidates([
+                ("stock_yjkb_em", {"symbol": stock_code}),
+                ("stock_yjkb_em", {}),
+            ])
+            result["errors"].extend(quick_errors)
+            if quick_df is not None:
+                row = _extract_latest_row(quick_df, stock_code)
+                if row is not None:
+                    result["earnings"]["quick_report_summary"] = _safe_str(
+                        _pick_by_keywords(row, ["快报", "摘要", "公告", "说明"])
+                    )[:200]
+                    result["source_chain"].append(f"earnings_quick:{quick_source}")
+                    self._cache_partial_bundle(stock_code, result)
 
-        # Institution / top shareholders
-        inst_df, inst_source, inst_errors = self._call_df_candidates([
-            ("stock_institute_hold", {}),
-            ("stock_institute_recommend", {}),
-        ])
-        result["errors"].extend(inst_errors)
-        if inst_df is not None:
-            row = _extract_latest_row(inst_df, stock_code)
-            if row is not None:
-                inst_change = _safe_float(_pick_by_keywords(row, ["增减", "变化", "变动", "持股变化"]))
-                result["institution"]["institution_holding_change"] = inst_change
-                result["source_chain"].append(f"institution:{inst_source}")
+            # Dividend details (cash dividend, pre-tax)
+            dividend_df, dividend_source, dividend_errors = self._call_df_candidates([
+                ("stock_fhps_detail_em", {"symbol": stock_code}),
+                ("stock_history_dividend_detail", {"symbol": stock_code, "indicator": "分红", "date": ""}),
+                ("stock_dividend_cninfo", {"symbol": stock_code}),
+            ])
+            result["errors"].extend(dividend_errors)
+            if dividend_df is not None:
+                dividend_payload = _build_dividend_payload(dividend_df, stock_code, max_events=5)
+                if dividend_payload:
+                    result["earnings"]["dividend"] = dividend_payload
+                    result["source_chain"].append(f"dividend:{dividend_source}")
+                    self._cache_partial_bundle(stock_code, result)
 
-        top10_df, top10_source, top10_errors = self._call_df_candidates([
-            ("stock_gdfx_top_10_em", {"symbol": stock_code}),
-            ("stock_gdfx_top_10_em", {}),
-            ("stock_zh_a_gdhs_detail_em", {"symbol": stock_code}),
-            ("stock_zh_a_gdhs_detail_em", {}),
-        ])
-        result["errors"].extend(top10_errors)
-        if top10_df is not None:
-            row = _extract_latest_row(top10_df, stock_code)
-            if row is not None:
-                holder_change = _safe_float(_pick_by_keywords(row, ["增减", "变化", "持股变化", "变动"]))
-                result["institution"]["top10_holder_change"] = holder_change
-                result["source_chain"].append(f"top10:{top10_source}")
+            # Institution / top shareholders
+            inst_df, inst_source, inst_errors = self._call_df_candidates([
+                ("stock_institute_hold", {}),
+                ("stock_institute_recommend", {}),
+            ])
+            result["errors"].extend(inst_errors)
+            if inst_df is not None:
+                row = _extract_latest_row(inst_df, stock_code)
+                if row is not None:
+                    inst_change = _safe_float(_pick_by_keywords(row, ["增减", "变化", "变动", "持股变化"]))
+                    result["institution"]["institution_holding_change"] = inst_change
+                    result["source_chain"].append(f"institution:{inst_source}")
+                    self._cache_partial_bundle(stock_code, result)
+
+            top10_df, top10_source, top10_errors = self._call_df_candidates([
+                ("stock_gdfx_top_10_em", {"symbol": stock_code}),
+                ("stock_gdfx_top_10_em", {}),
+                ("stock_zh_a_gdhs_detail_em", {"symbol": stock_code}),
+                ("stock_zh_a_gdhs_detail_em", {}),
+            ])
+            result["errors"].extend(top10_errors)
+            if top10_df is not None:
+                row = _extract_latest_row(top10_df, stock_code)
+                if row is not None:
+                    holder_change = _safe_float(_pick_by_keywords(row, ["增减", "变化", "持股变化", "变动"]))
+                    result["institution"]["top10_holder_change"] = holder_change
+                    result["source_chain"].append(f"top10:{top10_source}")
+                    self._cache_partial_bundle(stock_code, result)
 
         has_content = bool(result["growth"] or result["earnings"] or result["institution"])
         result["status"] = "partial" if has_content else "not_supported"
+        self._cache_partial_bundle(stock_code, result)
         return result
 
     def get_capital_flow(self, stock_code: str, top_n: int = 5) -> Dict[str, Any]:

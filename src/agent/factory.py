@@ -31,6 +31,9 @@ from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
+
+_VALUE_INVESTING_SKILL_ID = "value_investing"
+
 # ---------------------------------------------------------------------------
 # Module-level caches
 # ---------------------------------------------------------------------------
@@ -252,6 +255,7 @@ def resolve_skill_prompt_state(config=None, skills: Optional[List[str]] = None) 
     )
 
     skill_manager.activate(skills_to_activate)
+    _apply_value_investing_prompt_override(skill_manager, config, skills_to_activate)
     logger.info("[AgentFactory] Activated skills: %s", skills_to_activate)
 
     return SkillPromptState(
@@ -267,6 +271,23 @@ def resolve_skill_prompt_state(config=None, skills: Optional[List[str]] = None) 
             explicit_skill_selection=not use_legacy_default_prompt,
         ),
     )
+
+
+def _apply_value_investing_prompt_override(skill_manager, config, skills_to_activate: List[str]) -> None:
+    if _VALUE_INVESTING_SKILL_ID not in skills_to_activate:
+        return
+
+    skill = skill_manager.get(_VALUE_INVESTING_SKILL_ID)
+    if skill is None:
+        return
+
+    from src.services.value_investing_repo_service import load_value_investing_prompt_override
+
+    prompt_override = load_value_investing_prompt_override(config)
+    if not prompt_override:
+        return
+
+    skill.instructions = prompt_override
 
 
 def build_agent_executor(config=None, skills: Optional[List[str]] = None):

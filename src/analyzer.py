@@ -31,6 +31,7 @@ from src.config import (
     get_configured_llm_models,
     resolve_news_window_days,
 )
+from src.llm_rate_guard import execute_rate_limited_litellm_call
 from src.storage import persist_llm_usage
 from src.data.stock_mapping import STOCK_NAME_MAP
 from src.report_language import (
@@ -1045,10 +1046,20 @@ class GeminiAnalyzer:
                 _router_model_names = set(get_configured_llm_models(config.llm_model_list))
                 if use_channel_router and self._router and model in _router_model_names:
                     # Channel / YAML path: Router manages key + base_url per model
-                    response = self._router.completion(**call_kwargs)
+                    response = execute_rate_limited_litellm_call(
+                        lambda: self._router.completion(**call_kwargs),
+                        model=model,
+                        api_base=call_kwargs.get("api_base"),
+                        config=config,
+                    )
                 elif self._router and model == config.litellm_model and not use_channel_router:
                     # Legacy path: Router only for primary model multi-key
-                    response = self._router.completion(**call_kwargs)
+                    response = execute_rate_limited_litellm_call(
+                        lambda: self._router.completion(**call_kwargs),
+                        model=model,
+                        api_base=call_kwargs.get("api_base"),
+                        config=config,
+                    )
                 else:
                     # Legacy/direct-env path: direct call (also handles direct-env
                     # providers like groq/ or bedrock/ that are not in the Router
@@ -1057,7 +1068,12 @@ class GeminiAnalyzer:
                     if keys:
                         call_kwargs["api_key"] = keys[0]
                     call_kwargs.update(extra_litellm_params(model, config))
-                    response = litellm.completion(**call_kwargs)
+                    response = execute_rate_limited_litellm_call(
+                        lambda: litellm.completion(**call_kwargs),
+                        model=model,
+                        api_base=call_kwargs.get("api_base"),
+                        config=config,
+                    )
 
                 if response and response.choices and response.choices[0].message.content:
                     usage: Dict[str, Any] = {}

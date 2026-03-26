@@ -723,6 +723,15 @@ class Config:
     max_retries: int = 3
     retry_base_delay: float = 1.0
     retry_max_delay: float = 30.0
+    glm_rate_guard_enabled: bool = True
+    glm_request_min_interval_seconds: float = 8.0
+    glm_rate_limit_cooldown_seconds: float = 20.0
+    glm_rate_limit_max_retries: int = 1
+    value_investing_repo_path: str = ""
+    value_investing_prompt_file: str = ""
+    value_investing_report_auto_push: bool = False
+    value_investing_git_author_name: str = ""
+    value_investing_git_author_email: str = ""
     
     # === WebUI 配置 ===
     webui_enabled: bool = False
@@ -1350,6 +1359,33 @@ class Config:
                 field_name='FUNDAMENTAL_MYSQL_CONNECT_TIMEOUT_SECONDS',
                 minimum=0.1,
             ),
+            glm_rate_guard_enabled=parse_env_bool(os.getenv('GLM_RATE_GUARD_ENABLED'), True),
+            glm_request_min_interval_seconds=parse_env_float(
+                os.getenv('GLM_REQUEST_MIN_INTERVAL_SECONDS'),
+                8.0,
+                field_name='GLM_REQUEST_MIN_INTERVAL_SECONDS',
+                minimum=0.0,
+            ),
+            glm_rate_limit_cooldown_seconds=parse_env_float(
+                os.getenv('GLM_RATE_LIMIT_COOLDOWN_SECONDS'),
+                20.0,
+                field_name='GLM_RATE_LIMIT_COOLDOWN_SECONDS',
+                minimum=0.0,
+            ),
+            glm_rate_limit_max_retries=parse_env_int(
+                os.getenv('GLM_RATE_LIMIT_MAX_RETRIES'),
+                1,
+                field_name='GLM_RATE_LIMIT_MAX_RETRIES',
+                minimum=0,
+            ),
+            value_investing_repo_path=os.getenv('VALUE_INVESTING_REPO_PATH', ''),
+            value_investing_prompt_file=os.getenv('VALUE_INVESTING_PROMPT_FILE', ''),
+            value_investing_report_auto_push=parse_env_bool(
+                os.getenv('VALUE_INVESTING_REPORT_AUTO_PUSH'),
+                False,
+            ),
+            value_investing_git_author_name=os.getenv('VALUE_INVESTING_GIT_AUTHOR_NAME', ''),
+            value_investing_git_author_email=os.getenv('VALUE_INVESTING_GIT_AUTHOR_EMAIL', ''),
             portfolio_risk_concentration_alert_pct=parse_env_float(
                 os.getenv('PORTFOLIO_RISK_CONCENTRATION_ALERT_PCT'),
                 35.0,

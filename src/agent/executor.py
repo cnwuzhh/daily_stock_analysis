@@ -22,6 +22,7 @@ from typing import Any, Callable, Dict, List, Optional
 from src.agent.llm_adapter import LLMToolAdapter
 from src.agent.runner import run_agent_loop, parse_dashboard_json
 from src.agent.tools.registry import ToolRegistry
+from src.config import get_config
 from src.report_language import normalize_report_language
 from src.market_context import get_market_role, get_market_guidelines
 
@@ -567,6 +568,16 @@ class AgentExecutor:
                 strategy = context["previous_strategy"]
                 strategy_text = json.dumps(strategy, ensure_ascii=False) if isinstance(strategy, dict) else str(strategy)
                 context_parts.append(f"上次策略分析:\n{strategy_text}")
+            if context.get("realtime_quote"):
+                context_parts.append(f"[系统已获取的实时行情]\n{json.dumps(context['realtime_quote'], ensure_ascii=False)}")
+            if context.get("chip_distribution"):
+                context_parts.append(f"[系统已获取的筹码分布]\n{json.dumps(context['chip_distribution'], ensure_ascii=False)}")
+            if context.get("news_context"):
+                context_parts.append(f"[系统已获取的新闻与舆情情报]\n{context['news_context']}")
+            if context.get("stock_info"):
+                context_parts.append(f"[系统已预取的股票基本面]\n{json.dumps(context['stock_info'], ensure_ascii=False)}")
+            if context.get("fundamental_context"):
+                context_parts.append(f"[系统已预取的结构化基本面]\n{json.dumps(context['fundamental_context'], ensure_ascii=False)}")
             if context_parts:
                 context_msg = "[系统提供的历史分析上下文，可供参考对比]\n" + "\n".join(context_parts)
                 messages.append({"role": "user", "content": context_msg})
@@ -582,6 +593,7 @@ class AgentExecutor:
         # Persist assistant reply (or error note) for context continuity
         if result.success:
             conversation_manager.add_message(session_id, "assistant", result.content)
+            self._maybe_archive_value_investing_report(message, result.content, context)
         else:
             error_note = f"[分析失败] {result.error or '未知错误'}"
             conversation_manager.add_message(session_id, "assistant", error_note)
@@ -632,6 +644,29 @@ class AgentExecutor:
             error=loop_result.error,
         )
 
+    def _maybe_archive_value_investing_report(
+        self,
+        message: str,
+        content: str,
+        context: Optional[Dict[str, Any]],
+    ) -> None:
+        ctx = context or {}
+        skills = ctx.get("skills")
+        if not isinstance(skills, list) or "value_investing" not in skills:
+            return
+
+        try:
+            from src.services.value_investing_repo_service import archive_value_investing_report
+
+            archive_value_investing_report(
+                message=message,
+                analysis_markdown=content,
+                context=ctx,
+                config=get_config(),
+            )
+        except Exception as exc:
+            logger.warning("Failed to archive value investing report: %s", exc)
+
     def _build_user_message(self, task: str, context: Optional[Dict[str, Any]] = None) -> str:
         """Build the initial user message."""
         parts = [task]
@@ -653,6 +688,10 @@ class AgentExecutor:
                 parts.append(f"\n[系统已获取的筹码分布]\n{json.dumps(context['chip_distribution'], ensure_ascii=False)}")
             if context.get("news_context"):
                 parts.append(f"\n[系统已获取的新闻与舆情情报]\n{context['news_context']}")
+            if context.get("stock_info"):
+                parts.append(f"\n[系统已预取的股票基本面]\n{json.dumps(context['stock_info'], ensure_ascii=False)}")
+            if context.get("fundamental_context"):
+                parts.append(f"\n[系统已预取的结构化基本面]\n{json.dumps(context['fundamental_context'], ensure_ascii=False)}")
 
         parts.append("\n请使用可用工具获取缺失的数据（如历史K线、新闻等），然后以决策仪表盘 JSON 格式输出分析结果。")
         return "\n".join(parts)

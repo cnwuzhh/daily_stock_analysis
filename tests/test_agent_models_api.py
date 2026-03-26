@@ -279,6 +279,41 @@ class AgentSkillsEndpointTestCase(unittest.TestCase):
         self.assertEqual(payload["default_skill_id"], "bull_trend")
         self.assertEqual([item["id"] for item in payload["skills"]], ["value_investing", "bull_trend", "chan_theory"])
 
+    def test_value_investing_prefetches_stock_info_context(self) -> None:
+        fake_registry = SimpleNamespace(
+            execute=lambda name, **kwargs: {
+                "code": kwargs["stock_code"],
+                "name": "贵州茅台",
+                "fundamental_context": {"earnings": {"data": {"financial_report": {"revenue": 1}}}},
+            }
+        )
+
+        with patch("src.agent.factory.get_tool_registry", return_value=fake_registry):
+            ctx = agent._prefetch_value_investing_context({"skills": ["value_investing"]}, "请用价值投资分析600519")
+
+        self.assertEqual(ctx["stock_code"], "600519")
+        self.assertEqual(ctx["stock_name"], "贵州茅台")
+        self.assertIn("fundamental_context", ctx)
+
+    def test_value_investing_prefetches_stock_info_context_from_stock_name(self) -> None:
+        fake_registry = SimpleNamespace(
+            execute=lambda name, **kwargs: {
+                "code": kwargs["stock_code"],
+                "name": "贵州茅台",
+                "fundamental_context": {"earnings": {"data": {"financial_report": {"revenue": 1}}}},
+            }
+        )
+
+        with patch("src.agent.factory.get_tool_registry", return_value=fake_registry), patch(
+            "src.services.name_to_code_resolver.resolve_name_to_code",
+            return_value="600519",
+        ):
+            ctx = agent._prefetch_value_investing_context({"skills": ["value_investing"]}, "用价值投资分析贵州茅台")
+
+        self.assertEqual(ctx["stock_code"], "600519")
+        self.assertEqual(ctx["stock_name"], "贵州茅台")
+        self.assertIn("fundamental_context", ctx)
+
     def test_legacy_strategies_endpoint_preserves_legacy_field_names(self) -> None:
         config = _build_config()
         skill_manager = SimpleNamespace(

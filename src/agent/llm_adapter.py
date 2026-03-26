@@ -24,6 +24,7 @@ from src.config import (
     get_effective_agent_models_to_try,
     get_effective_agent_primary_model,
 )
+from src.llm_rate_guard import execute_rate_limited_litellm_call
 
 logger = logging.getLogger(__name__)
 
@@ -324,10 +325,20 @@ class LLMToolAdapter:
         agent_primary_model = get_effective_agent_primary_model(self._config)
         if use_channel_router and self._router and model in _router_model_names:
             # Channel / YAML path: Router manages all models in its model_list
-            response = self._router.completion(**call_kwargs)
+            response = execute_rate_limited_litellm_call(
+                lambda: self._router.completion(**call_kwargs),
+                model=model,
+                api_base=call_kwargs.get("api_base"),
+                config=self._config,
+            )
         elif self._router and model == agent_primary_model and not use_channel_router:
             # Legacy path: Router for primary model multi-key
-            response = self._router.completion(**call_kwargs)
+            response = execute_rate_limited_litellm_call(
+                lambda: self._router.completion(**call_kwargs),
+                model=model,
+                api_base=call_kwargs.get("api_base"),
+                config=self._config,
+            )
         else:
             # Legacy/direct-env path: direct call (also handles direct-env
             # providers like groq/ or bedrock/ that are not in the Router
@@ -336,7 +347,12 @@ class LLMToolAdapter:
             if keys:
                 call_kwargs["api_key"] = keys[0]
             call_kwargs.update(extra_litellm_params(model, self._config))
-            response = litellm.completion(**call_kwargs)
+            response = execute_rate_limited_litellm_call(
+                lambda: litellm.completion(**call_kwargs),
+                model=model,
+                api_base=call_kwargs.get("api_base"),
+                config=self._config,
+            )
 
         return self._parse_litellm_response(response, model)
 

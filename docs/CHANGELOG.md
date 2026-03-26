@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### 修复
 
+- 💾 **价值投资接入外部投资体系报告库** — `value_investing` 现支持从外部 `StockAnalysis_Tonardo` 仓库的 `我的投资体系报告库/价值投资体系.txt` 动态读取提示词；分析完成后可按该仓库 `我的投资体系报告库/README.md` 的命名规范自动落盘到 `01_个股深度分析/<年份>/`，并在启用 `VALUE_INVESTING_REPORT_AUTO_PUSH=true` 时执行 `git add` / `commit` / `push`。
+- 🔐 **容器化价值投资报告自动提交兼容 Git SSH 与 safe.directory** — Docker 测试环境现支持把容器内 `/root/.ssh` 持久化挂载到宿主机，避免重建后丢失 GitHub SSH 凭据；价值投资报告归档在自动提交前也会显式注册外部仓库为 `safe.directory`，并支持通过 `VALUE_INVESTING_GIT_AUTHOR_NAME` / `VALUE_INVESTING_GIT_AUTHOR_EMAIL` 注入 commit author，降低 bind mount 仓库在容器内执行 `git commit` / `git push` 时的失败概率。
+- ⏱️ **新增 GLM 进程内节流保护，降低 BigModel 速率限制触发概率** — 新增 `src/llm_rate_guard.py`，对 `glm-*` / `open.bigmodel.cn` 请求统一做串行化与最小间隔控制，并在命中 rate limit 时执行一次冷却后重试；Agent 问股、首页分析、Vision 图片识别与 LLM 配置测试链路现统一复用该保护，减少远端 Docker 环境里连续触发 `RateLimitError` 的概率。同步补充 `GLM_RATE_GUARD_ENABLED`、`GLM_REQUEST_MIN_INTERVAL_SECONDS`、`GLM_RATE_LIMIT_COOLDOWN_SECONDS`、`GLM_RATE_LIMIT_MAX_RETRIES` 配置说明。
+- 💹 **价值投资问股与首页分析稳定注入财报数据** — `api/v1/endpoints/agent.py` 在选中 `value_investing` 时会先预取 `get_stock_info` 并注入 `fundamental_context`，避免问股仅靠模型自行触发基本面工具；同时 `data_provider/fundamental_adapter.py` 在 MySQL 已命中财务摘要时会跳过更慢的 AkShare 财报块，降低 600519 等首页分析在短超时预算下因 `fundamental_bundle timeout` 导致 `financial_report` 丢失的概率。
 - 💎 **问股新增“价值投资”策略选项** — 新增内置策略文件 `strategies/value_investing.yaml`，通过现有技能加载链路让 Web/Bot/API 的问股策略列表自动出现“价值投资”选项；价值投资专家提示词从策略文件读取，重点约束企业质量、估值安全边际、现金流、分红与风险排查，并在问股页空状态补充了对应快捷示例。
 - 🗄️ **A 股 / 港股财报摘要支持 MySQL 优先读取** — `data_provider/fundamental_adapter.py` 现可在配置 `FUNDAMENTAL_MYSQL_*` 后优先从 MySQL 读取 A 股与港股最新财报摘要与增长指标（`financial_report` / `growth`），未命中、连库失败或字段缺失时自动回退到 AkShare；`get_fundamental_context` 同步放开港股基本面聚合，但港股仍只开放估值与财务摘要，资金流 / 龙虎榜 / 板块榜继续保持 `not_supported`，以维持现有 fail-open 语义。
 - 📦 **恢复 LiteLLM 官方 PyPI 安装并锁定安全上限** — `requirements.txt` 重新使用 `pip install litellm` 的官方 PyPI 安装路径，并在保留历史最低要求 `>=1.80.10` 的同时增加 `<1.82.7` 的安全上限，避免误装已被移除的 `1.82.7` / `1.82.8` 风险版本；Windows 桌面打包脚本也同步回退到标准 `pip install -r requirements.txt` 链路，减少特殊下载分支带来的维护成本。

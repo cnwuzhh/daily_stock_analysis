@@ -192,6 +192,10 @@
 | `AGENT_SKILLS` | 激活的策略技能 id（逗号分隔），`all` 启用全部策略技能；留空时使用主默认策略 skill（内置默认是 `bull_trend`），详见 `.env.example` | 可选 |
 | `AGENT_MAX_STEPS` | Agent 最大推理步数（默认 10） | 可选 |
 | `AGENT_SKILL_DIR` | 自定义策略技能目录（默认沿用内置 `strategies/` 兼容路径） | 可选 |
+| `GLM_RATE_GUARD_ENABLED` | 为 `glm-*` / BigModel 请求启用串行节流保护，降低速率限制触发概率（默认 `true`） | 可选 |
+| `GLM_REQUEST_MIN_INTERVAL_SECONDS` | 两次 GLM 请求之间的最小启动间隔（秒，默认 `8`） | 可选 |
+| `GLM_RATE_LIMIT_COOLDOWN_SECONDS` | 遇到 GLM 速率限制后的冷却时间（秒，默认 `20`） | 可选 |
+| `GLM_RATE_LIMIT_MAX_RETRIES` | 单次 GLM 请求在速率限制后的重试次数（默认 `1`） | 可选 |
 | `TRADING_DAY_CHECK_ENABLED` | 交易日检查（默认 `true`）：非交易日跳过执行；设为 `false` 或使用 `--force-run` 强制执行 | 可选 |
 | `ENABLE_CHIP_DISTRIBUTION` | 启用筹码分布（Actions 默认 false；需筹码数据时在 Variables 中设为 true，接口可能不稳定） | 可选 |
 | `ENABLE_FUNDAMENTAL_PIPELINE` | 基本面聚合总开关；关闭时保持主流程不变 | 可选 |
@@ -207,6 +211,9 @@
 > - 当前采用 `best-effort` 软超时（fail-open），超时会立即降级并继续主流程；
 > - 不承诺严格硬中断第三方调用线程，因此 `P95 <= 1.5s` 是阶段目标而非硬 SLA；
 > - 若业务需要硬 SLA，可在后续阶段升级为“子进程隔离 + kill”的硬超时方案。
+> - 当 `FUNDAMENTAL_MYSQL_ENABLED=true` 且 MySQL 已命中 `financial_report` / `growth` 时，系统会跳过更慢的 AkShare 财报补充块，优先保住首页分析里的财报摘要结果，避免在短超时预算下被 `fundamental_bundle timeout` 吞掉。
+> - 当问股明确选择 `value_investing` 时，后端会在进入 Agent 前预取一次 `get_stock_info`，并把 `fundamental_context` 注入对话上下文，保证价值投资分析稳定拿到结构化财报数据，而不是只依赖模型自行决定是否调用工具。
+> - 当 `OPENAI_BASE_URL=https://open.bigmodel.cn/...` 或模型名为 `glm-*` 时，系统会默认启用进程内串行节流保护，避免首页分析、问股、图片识别等并发 LiteLLM 调用过快触发 GLM rate limit；如需更保守，可上调 `GLM_REQUEST_MIN_INTERVAL_SECONDS`。
 > - 字段契约：
 >   - `fundamental_context.boards.data` = `sector_rankings`（板块涨跌榜，结构 `{top, bottom}`）；
 >   - `fundamental_context.earnings.data.financial_report` = 财报摘要（报告期、营收、归母净利润、经营现金流、ROE）；
@@ -390,6 +397,7 @@ LITELLM_MODEL=openai/deepseek-chat
 - **流式进度反馈**：实时展示 AI 思考路径（行情获取 → 技术分析 → 新闻搜索 → 生成结论）
 - **多轮对话**：支持追问上下文，会话历史持久化保存
 - **导出与发送**：可将会话导出为 .md 文件，或发送到已配置的通知渠道
+- **价值投资报告归档**：配置 `VALUE_INVESTING_REPO_HOST_PATH`（宿主机目录挂载）和容器内的 `VALUE_INVESTING_REPO_PATH` 后，`value_investing` 会从外部 `StockAnalysis_Tonardo` 仓库的 `我的投资体系报告库/价值投资体系.txt` 读取提示词，并可按 `我的投资体系报告库/README.md` 规范把分析结果写入 `01_个股深度分析/<年份>/`；若同时开启 `VALUE_INVESTING_REPORT_AUTO_PUSH=true`，系统会自动提交并推送到该外部仓库。容器化部署建议同时配置 `VALUE_INVESTING_GIT_AUTHOR_NAME` 与 `VALUE_INVESTING_GIT_AUTHOR_EMAIL`，避免 git commit 因缺少 author identity 失败。
 - **后台执行**：切换页面不中断分析，完成时 Dock 问股图标显示角标
 - **Bot 命令**：`/ask` 技能分析（支持多股对比）、`/chat` 自由对话
 - **自定义策略（Skill）**：在 `strategies/` 目录下新建 YAML 文件或在自定义 skill 目录中放入 `SKILL.md` bundle，即可添加新的交易策略，无需写代码

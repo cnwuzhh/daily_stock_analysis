@@ -19,6 +19,9 @@ for _mod in ("litellm", "google.generativeai", "google.genai", "anthropic"):
 import pytest
 from unittest.mock import PropertyMock
 
+from src.config import Config
+from src.llm_rate_guard import execute_rate_limited_litellm_call, reset_glm_rate_guard_state
+
 
 # ---------------------------------------------------------------------------
 # Analyzer.generate_text()
@@ -164,3 +167,85 @@ class TestMarketAnalyzerBypassFix:
         assert violations == [], (
             f"market_analyzer.py still accesses private Analyzer attributes: {violations}"
         )
+
+
+class TestGlmRateGuard:
+    def _cfg(self, **overrides):
+        defaults = dict(
+            stock_list=["600519"],
+            glm_rate_guard_enabled=True,
+            glm_request_min_interval_seconds=8.0,
+            glm_rate_limit_cooldown_seconds=20.0,
+            glm_rate_limit_max_retries=1,
+        )
+        defaults.update(overrides)
+        return Config(**defaults)
+
+    def test_non_glm_model_bypasses_guard(self):
+        reset_glm_rate_guard_state()
+        calls = []
+
+        def fake_call():
+            calls.append("ok")
+            return "done"
+
+        with patch("src.llm_rate_guard.time.sleep") as mock_sleep:
+            result = execute_rate_limited_litellm_call(
+                fake_call,
+                model="openai/gpt-4o-mini",
+                api_base="https://api.openai.com/v1",
+                config=self._cfg(),
+            )
+
+        assert result == "done"
+        assert calls == ["ok"]
+        mock_sleep.assert_not_called()
+
+    def test_glm_guard_waits_for_min_interval(self):
+        reset_glm_rate_guard_state()
+        calls = []
+
+        def fake_call():
+            calls.append("ok")
+            return "done"
+
+        with patch("src.llm_rate_guard.time.monotonic", side_effect=[0.0, 0.0, 2.0, 2.0]), \
+             patch("src.llm_rate_guard.time.sleep") as mock_sleep:
+            execute_rate_limited_litellm_call(
+                fake_call,
+                model="openai/glm-4.7",
+                api_base="https://open.bigmodel.cn/api/paas/v4",
+                config=self._cfg(),
+            )
+            execute_rate_limited_litellm_call(
+                fake_call,
+                model="openai/glm-4.7",
+                api_base="https://open.bigmodel.cn/api/paas/v4",
+                config=self._cfg(),
+            )
+
+        assert calls == ["ok", "ok"]
+        mock_sleep.assert_called_once_with(6.0)
+
+    def test_glm_guard_retries_after_rate_limit(self):
+        reset_glm_rate_guard_state()
+        attempts = []
+
+        def fake_call():
+            attempts.append(1)
+            if len(attempts) == 1:
+                raise RuntimeError("RateLimitError: 您的账户已达到速率限制")
+            return "done"
+
+        with patch("src.llm_rate_guard.time.monotonic", side_effect=[0.0, 0.0, 25.0, 25.0]), \
+             patch("src.llm_rate_guard.time.sleep") as mock_sleep:
+            result = execute_rate_limited_litellm_call(
+                fake_call,
+                model="openai/glm-4.7",
+                api_base="https://open.bigmodel.cn/api/paas/v4",
+                config=self._cfg(),
+            )
+
+        assert result == "done"
+        assert len(attempts) == 2
+        mock_sleep.assert_called_once_with(20.0)

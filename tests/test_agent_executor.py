@@ -17,7 +17,7 @@ import unittest
 import sys
 import os
 from dataclasses import dataclass
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -141,6 +141,40 @@ class TestAgentExecutor(unittest.TestCase):
         self.assertIn("多头排列必须条件", prompt)
         self.assertIn("多头排列：MA5 > MA10 > MA20", prompt)
 
+    def test_chat_archives_value_investing_report_after_success(self):
+        registry = _make_registry_with_echo()
+        adapter = _make_mock_adapter()
+        adapter.call_with_tools.return_value = LLMResponse(
+            content="价值投资分析报告",
+            tool_calls=[],
+            usage={"total_tokens": 50},
+            provider="openai",
+        )
+
+        executor = AgentExecutor(
+            registry,
+            adapter,
+            skill_instructions="### 技能 1: 价值投资",
+            default_skill_policy="",
+            max_steps=2,
+        )
+
+        with patch("src.agent.conversation.conversation_manager") as mock_conversation_manager, \
+             patch("src.agent.executor.get_config", return_value=MagicMock()), \
+             patch("src.services.value_investing_repo_service.archive_value_investing_report") as mock_archive:
+            session = MagicMock()
+            session.get_history.return_value = []
+            mock_conversation_manager.get_or_create.return_value = session
+
+            result = executor.chat(
+                message="用价值投资分析贵州茅台",
+                session_id="test-session",
+                context={"skills": ["value_investing"], "stock_code": "600519", "stock_name": "贵州茅台"},
+            )
+
+        self.assertTrue(result.success)
+        mock_archive.assert_called_once()
+
     def test_simple_text_response(self):
         """Agent returns text immediately (no tool calls) with JSON dashboard."""
         registry = _make_registry_with_echo()
@@ -196,6 +230,34 @@ class TestAgentExecutor(unittest.TestCase):
         self.assertEqual(len(result.tool_calls_log), 1)
         self.assertEqual(result.tool_calls_log[0]["tool"], "echo")
         self.assertTrue(result.tool_calls_log[0]["success"])
+
+    def test_chat_injects_prefetched_fundamental_context_into_messages(self):
+        registry = _make_registry_with_echo()
+        adapter = _make_mock_adapter()
+        adapter.call_with_tools.return_value = LLMResponse(
+            content="好的",
+            tool_calls=[],
+            usage={"total_tokens": 20},
+            provider="openai",
+        )
+
+        executor = AgentExecutor(registry, adapter, max_steps=2)
+        result = executor.chat(
+            message="用价值投资分析贵州茅台",
+            session_id="test-session",
+            context={
+                "stock_code": "600519",
+                "stock_name": "贵州茅台",
+                "fundamental_context": {"earnings": {"data": {"financial_report": {"revenue": 1}}}},
+            },
+        )
+
+        self.assertTrue(result.success)
+        sent_messages = adapter.call_with_tools.call_args.args[0]
+        serialized = json.dumps(sent_messages, ensure_ascii=False)
+        self.assertIn("[系统已预取的结构化基本面]", serialized)
+        self.assertIn("贵州茅台", serialized)
+        self.assertIn("600519", serialized)
 
     def test_multiple_tool_calls_in_one_step(self):
         """Agent requests multiple tool calls in a single response."""

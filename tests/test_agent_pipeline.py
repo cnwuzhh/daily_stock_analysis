@@ -21,7 +21,10 @@ from unittest.mock import MagicMock, patch, PropertyMock
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
 
+from tests.litellm_stub import ensure_litellm_stub
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+ensure_litellm_stub()
 
 
 def _builtin_strategy_names() -> set[str]:
@@ -860,6 +863,71 @@ class TestAgentConstructionChain(unittest.TestCase):
         self.assertEqual(result.content, "ok")
         self.assertEqual(timeouts[0], ("openai/gpt-4o-mini", 10.0))
         self.assertEqual(timeouts[1], ("anthropic/claude-3-5-sonnet-20241022", 3.0))
+
+    def test_llm_adapter_applies_glm_rate_guard_to_direct_calls(self):
+        mock_cfg = MagicMock()
+        mock_cfg.agent_litellm_model = "openai/glm-4.7"
+        mock_cfg.litellm_model = None
+        mock_cfg.litellm_fallback_models = []
+        mock_cfg.llm_model_list = []
+        mock_cfg.llm_temperature = 0.7
+        mock_cfg.gemini_api_keys = []
+        mock_cfg.anthropic_api_keys = []
+        mock_cfg.openai_api_keys = ["test-openai-key"]
+        mock_cfg.deepseek_api_keys = []
+        mock_cfg.openai_base_url = "https://open.bigmodel.cn/api/paas/v4"
+        mock_cfg.glm_rate_guard_enabled = True
+        mock_cfg.glm_request_min_interval_seconds = 8.0
+        mock_cfg.glm_rate_limit_cooldown_seconds = 20.0
+        mock_cfg.glm_rate_limit_max_retries = 1
+
+        from src.agent.llm_adapter import LLMToolAdapter
+        adapter = LLMToolAdapter(config=mock_cfg)
+
+        fake_response = MagicMock()
+        fake_response.choices = [MagicMock(message=MagicMock(content="ok", tool_calls=[]))]
+        fake_response.usage = None
+
+        with patch("src.agent.llm_adapter.execute_rate_limited_litellm_call", return_value=fake_response) as mock_guard:
+            result = adapter.call_completion(messages=[{"role": "user", "content": "hi"}], tools=[])
+
+        self.assertEqual(result.content, "ok")
+        kwargs = mock_guard.call_args.kwargs
+        self.assertEqual(kwargs["model"], "openai/glm-4.7")
+        self.assertEqual(kwargs["api_base"], "https://open.bigmodel.cn/api/paas/v4")
+        self.assertIs(kwargs["config"], mock_cfg)
+
+    def test_resolve_skill_prompt_state_uses_external_value_investing_prompt_override(self):
+        from src.agent.factory import resolve_skill_prompt_state
+
+        fake_skill = SimpleNamespace(
+            name="value_investing",
+            display_name="价值投资",
+            description="长期分析",
+            instructions="old prompt",
+            category="framework",
+            default_active=False,
+            default_router=False,
+            default_priority=10,
+            enabled=False,
+            source="builtin",
+        )
+        skill_manager = MagicMock()
+        skill_manager.list_skills.return_value = [fake_skill]
+        skill_manager.get.return_value = fake_skill
+        skill_manager.get_skill_instructions.side_effect = lambda: fake_skill.instructions
+
+        config = SimpleNamespace(agent_skills=[], agent_skill_dir=None)
+
+        with patch("src.agent.factory.get_skill_manager", return_value=skill_manager), \
+             patch("src.agent.skills.defaults.get_default_active_skill_ids", return_value=["value_investing"]), \
+             patch("src.agent.skills.defaults.get_default_trading_skill_policy", return_value=""), \
+             patch("src.agent.skills.defaults.get_default_technical_skill_policy", return_value=""), \
+             patch("src.services.value_investing_repo_service.load_value_investing_prompt_override", return_value="external prompt"):
+            state = resolve_skill_prompt_state(config, skills=["value_investing"])
+
+        self.assertEqual(fake_skill.instructions, "external prompt")
+        self.assertEqual(state.skill_instructions, "external prompt")
 
 
 # ============================================================

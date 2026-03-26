@@ -20,6 +20,7 @@ import time
 from typing import List, Optional, Tuple
 
 from src.config import Config, get_config
+from src.llm_rate_guard import execute_rate_limited_litellm_call
 
 logger = logging.getLogger(__name__)
 
@@ -276,7 +277,12 @@ def _call_litellm_vision(image_b64: str, mime_type: str, api_key: Optional[str] 
     if getattr(litellm, "completion", None) is None:
         import litellm as litellm_module
         litellm = litellm_module
-    response = litellm.completion(**call_kwargs)
+    response = execute_rate_limited_litellm_call(
+        lambda: litellm.completion(**call_kwargs),
+        model=model,
+        api_base=call_kwargs.get("api_base"),
+        config=cfg,
+    )
     if response and response.choices and response.choices[0].message.content:
         return response.choices[0].message.content
     raise ValueError("LiteLLM vision returned empty response")

@@ -26,6 +26,8 @@ x-common: &common
     - ../reports:/app/reports
     - ../.env:/app/.env
     - ../strategies:/app/strategies:ro
+    - ../container-home/.ssh:/root/.ssh
+    - ${VALUE_INVESTING_REPO_HOST_PATH:-../external/StockAnalysis_Tonardo}:/external/StockAnalysis_Tonardo
     # 如需覆盖前端静态资源，可挂载本地 static 目录
     # - ../static:/app/static:ro
 

@@ -26,6 +26,7 @@ from src.config import (
     resolve_llm_channel_protocol,
     setup_env,
 )
+from src.llm_rate_guard import execute_rate_limited_litellm_call
 from src.core.config_manager import ConfigManager
 from src.core.config_registry import (
     build_schema_response,
@@ -292,7 +293,12 @@ class SystemConfigService:
             import litellm
 
             started_at = time.perf_counter()
-            response = litellm.completion(**call_kwargs)
+            response = execute_rate_limited_litellm_call(
+                lambda: litellm.completion(**call_kwargs),
+                model=resolved_model,
+                api_base=call_kwargs.get("api_base"),
+                config=Config.get_instance(),
+            )
             latency_ms = int((time.perf_counter() - started_at) * 1000)
             content = ""
             if response and getattr(response, "choices", None):
