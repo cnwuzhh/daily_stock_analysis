@@ -17,6 +17,18 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+
+def _has_meaningful_dict_values(payload: Dict[str, Any]) -> bool:
+    return any(value is not None for value in payload.values())
+
+
+def _merge_missing_fields(preferred: Dict[str, Any], fallback: Dict[str, Any]) -> Dict[str, Any]:
+    merged = dict(preferred)
+    for key, value in fallback.items():
+        if merged.get(key) is None and value is not None:
+            merged[key] = value
+    return merged
+
 _DIVIDEND_KEYWORD_MAP: Dict[str, List[str]] = {
     "per_share": [
         "每股派息",
@@ -264,6 +276,109 @@ def _extract_latest_row(df: pd.DataFrame, stock_code: str) -> Optional[pd.Series
 class AkshareFundamentalAdapter:
     """AkShare adapter for fundamentals, capital flow and dragon-tiger signals."""
 
+    def _load_mysql_financial_snapshot(self, stock_code: str) -> Tuple[Optional[Dict[str, Dict[str, Any]]], Optional[str]]:
+        from src.config import get_config
+
+        config = get_config()
+        if not getattr(config, "fundamental_mysql_enabled", False):
+            return None, None
+
+        host = str(getattr(config, "fundamental_mysql_host", "") or "").strip()
+        user = str(getattr(config, "fundamental_mysql_user", "") or "").strip()
+        password = getattr(config, "fundamental_mysql_password", None)
+        database = str(getattr(config, "fundamental_mysql_database", "") or "").strip()
+        charset = str(getattr(config, "fundamental_mysql_charset", "utf8mb4") or "utf8mb4").strip() or "utf8mb4"
+        port = int(getattr(config, "fundamental_mysql_port", 3306) or 3306)
+        timeout = float(getattr(config, "fundamental_mysql_connect_timeout_seconds", 0.8) or 0.8)
+        if not host or not user or password is None or not database:
+            return None, "mysql_financial_config_incomplete"
+
+        try:
+            import pymysql
+        except Exception as exc:
+            return None, f"import_pymysql:{type(exc).__name__}"
+
+        normalized_code = _normalize_code(stock_code)
+        ts_code_candidates = [
+            f"{normalized_code}.SS",
+            f"{normalized_code}.SZ",
+            f"{normalized_code}.BJ",
+        ]
+        sql = """
+SELECT
+    fr.report_date,
+    fr.announcement_date,
+    i.revenue,
+    i.net_profit_parent,
+    cf.cfo,
+    r.roe_weighted,
+    r.gross_margin,
+    r.yoy_revenue_growth,
+    r.yoy_net_profit_growth
+FROM company c
+JOIN v_latest_financial_report fr ON fr.company_id = c.company_id
+LEFT JOIN income_statement_fact i ON i.report_id = fr.report_id
+LEFT JOIN cash_flow_fact cf ON cf.report_id = fr.report_id
+LEFT JOIN financial_ratio_fact r ON r.report_id = fr.report_id
+WHERE c.ticker = %s OR c.ts_code IN (%s, %s, %s)
+ORDER BY fr.report_date DESC, fr.announcement_date DESC
+LIMIT 1
+        """.strip()
+
+        try:
+            conn = pymysql.connect(
+                host=host,
+                port=port,
+                user=user,
+                password=password,
+                database=database,
+                connect_timeout=max(1, int(round(timeout))),
+                read_timeout=max(1, int(round(timeout))),
+                write_timeout=max(1, int(round(timeout))),
+                charset=charset,
+                cursorclass=pymysql.cursors.DictCursor,
+            )
+            try:
+                with conn.cursor() as cursor:
+                    cursor.execute(sql, (normalized_code, *ts_code_candidates))
+                    row = cursor.fetchone()
+            finally:
+                conn.close()
+        except Exception as exc:
+            logger.warning("MySQL financial snapshot lookup failed for %s: %s", stock_code, exc)
+            return None, f"mysql_financial_lookup:{type(exc).__name__}"
+
+        if not isinstance(row, dict) or not row:
+            return None, None
+
+        report_date = _normalize_report_date(row.get("report_date") or row.get("announcement_date"))
+        growth_payload = {
+            "revenue_yoy": _safe_float(row.get("yoy_revenue_growth")),
+            "net_profit_yoy": _safe_float(row.get("yoy_net_profit_growth")),
+            "roe": _safe_float(row.get("roe_weighted")),
+            "gross_margin": _safe_float(row.get("gross_margin")),
+        }
+        financial_report_payload = {
+            "report_date": report_date,
+            "revenue": _safe_float(row.get("revenue")),
+            "net_profit_parent": _safe_float(row.get("net_profit_parent")),
+            "operating_cash_flow": _safe_float(row.get("cfo")),
+            "roe": _safe_float(row.get("roe_weighted")),
+        }
+
+        payload: Dict[str, Dict[str, Any]] = {}
+        if _has_meaningful_dict_values(growth_payload):
+            payload["growth"] = growth_payload
+        if _has_meaningful_dict_values(financial_report_payload):
+            payload["financial_report"] = financial_report_payload
+        if not payload:
+            return None, None
+
+        payload["meta"] = {
+            "source": f"mysql:{database}.v_latest_financial_report",
+        }
+        return payload, None
+
     def _call_df_candidates(
         self,
         candidates: List[Tuple[str, Dict[str, Any]]],
@@ -302,42 +417,67 @@ class AkshareFundamentalAdapter:
             "errors": [],
         }
 
+        mysql_payload, mysql_error = self._load_mysql_financial_snapshot(stock_code)
+        if mysql_error:
+            result["errors"].append(mysql_error)
+        if isinstance(mysql_payload, dict):
+            mysql_growth = mysql_payload.get("growth")
+            if isinstance(mysql_growth, dict) and _has_meaningful_dict_values(mysql_growth):
+                result["growth"] = dict(mysql_growth)
+            mysql_financial_report = mysql_payload.get("financial_report")
+            if isinstance(mysql_financial_report, dict) and _has_meaningful_dict_values(mysql_financial_report):
+                result["earnings"]["financial_report"] = dict(mysql_financial_report)
+            mysql_meta = mysql_payload.get("meta")
+            if isinstance(mysql_meta, dict) and mysql_meta.get("source"):
+                result["source_chain"].append(f"growth:{mysql_meta['source']}")
+
         # Financial indicators
-        fin_df, fin_source, fin_errors = self._call_df_candidates([
-            ("stock_financial_abstract", {"symbol": stock_code}),
-            ("stock_financial_analysis_indicator", {"symbol": stock_code}),
-            ("stock_financial_analysis_indicator", {}),
-        ])
-        result["errors"].extend(fin_errors)
-        if fin_df is not None:
-            row = _extract_latest_row(fin_df, stock_code)
-            if row is not None:
-                revenue_yoy = _safe_float(_pick_by_keywords(row, ["营业收入同比", "营收同比", "收入同比", "同比增长"]))
-                profit_yoy = _safe_float(_pick_by_keywords(row, ["净利润同比", "净利同比", "归母净利润同比"]))
-                roe = _safe_float(_pick_by_keywords(row, ["净资产收益率", "ROE", "净资产收益"]))
-                gross_margin = _safe_float(_pick_by_keywords(row, ["毛利率"]))
-                report_date = _normalize_report_date(_pick_by_keywords(row, _DIVIDEND_KEYWORD_MAP["report_date"]))
-                revenue = _safe_float(_pick_by_keywords(row, ["营业总收入", "营业收入", "营收"]))
-                net_profit_parent = _safe_float(_pick_by_keywords(row, ["归母净利润", "母公司股东净利润", "净利润"]))
-                operating_cash_flow = _safe_float(
-                    _pick_by_keywords(row, ["经营活动产生的现金流量净额", "经营现金流", "经营活动现金流"])
-                )
-                result["growth"] = {
-                    "revenue_yoy": revenue_yoy,
-                    "net_profit_yoy": profit_yoy,
-                    "roe": roe,
-                    "gross_margin": gross_margin,
-                }
-                financial_report_payload = {
-                    "report_date": report_date,
-                    "revenue": revenue,
-                    "net_profit_parent": net_profit_parent,
-                    "operating_cash_flow": operating_cash_flow,
-                    "roe": roe,
-                }
-                if any(v is not None for v in financial_report_payload.values()):
-                    result["earnings"]["financial_report"] = financial_report_payload
-                result["source_chain"].append(f"growth:{fin_source}")
+        need_akshare_financial = not result["growth"] or not result["earnings"].get("financial_report")
+        if need_akshare_financial:
+            fin_df, fin_source, fin_errors = self._call_df_candidates([
+                ("stock_financial_abstract", {"symbol": stock_code}),
+                ("stock_financial_analysis_indicator", {"symbol": stock_code}),
+                ("stock_financial_analysis_indicator", {}),
+            ])
+            result["errors"].extend(fin_errors)
+            if fin_df is not None:
+                row = _extract_latest_row(fin_df, stock_code)
+                if row is not None:
+                    revenue_yoy = _safe_float(_pick_by_keywords(row, ["营业收入同比", "营收同比", "收入同比", "同比增长"]))
+                    profit_yoy = _safe_float(_pick_by_keywords(row, ["净利润同比", "净利同比", "归母净利润同比"]))
+                    roe = _safe_float(_pick_by_keywords(row, ["净资产收益率", "ROE", "净资产收益"]))
+                    gross_margin = _safe_float(_pick_by_keywords(row, ["毛利率"]))
+                    report_date = _normalize_report_date(_pick_by_keywords(row, _DIVIDEND_KEYWORD_MAP["report_date"]))
+                    revenue = _safe_float(_pick_by_keywords(row, ["营业总收入", "营业收入", "营收"]))
+                    net_profit_parent = _safe_float(_pick_by_keywords(row, ["归母净利润", "母公司股东净利润", "净利润"]))
+                    operating_cash_flow = _safe_float(
+                        _pick_by_keywords(row, ["经营活动产生的现金流量净额", "经营现金流", "经营活动现金流"])
+                    )
+                    ak_growth_payload = {
+                        "revenue_yoy": revenue_yoy,
+                        "net_profit_yoy": profit_yoy,
+                        "roe": roe,
+                        "gross_margin": gross_margin,
+                    }
+                    if _has_meaningful_dict_values(ak_growth_payload):
+                        result["growth"] = _merge_missing_fields(result["growth"], ak_growth_payload)
+                    financial_report_payload = {
+                        "report_date": report_date,
+                        "revenue": revenue,
+                        "net_profit_parent": net_profit_parent,
+                        "operating_cash_flow": operating_cash_flow,
+                        "roe": roe,
+                    }
+                    if _has_meaningful_dict_values(financial_report_payload):
+                        existing_financial_report = result["earnings"].get("financial_report", {})
+                        if not isinstance(existing_financial_report, dict):
+                            existing_financial_report = {}
+                        result["earnings"]["financial_report"] = _merge_missing_fields(
+                            existing_financial_report,
+                            financial_report_payload,
+                        )
+                    if fin_source:
+                        result["source_chain"].append(f"growth:{fin_source}")
 
         # Earnings forecast
         forecast_df, forecast_source, forecast_errors = self._call_df_candidates([
