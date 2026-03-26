@@ -299,12 +299,39 @@ class AkshareFundamentalAdapter:
             return None, f"import_pymysql:{type(exc).__name__}"
 
         normalized_code = _normalize_code(stock_code)
-        ts_code_candidates = [
-            f"{normalized_code}.SS",
-            f"{normalized_code}.SZ",
-            f"{normalized_code}.BJ",
-        ]
-        sql = """
+        is_hk = str(stock_code or "").upper().startswith("HK") or str(stock_code or "").upper().endswith(".HK")
+        if is_hk:
+            database = str(getattr(config, "fundamental_mysql_hk_database", "hkfin") or "hkfin").strip() or "hkfin"
+            stock_code_candidates = [normalized_code, normalized_code.lstrip("0") or "0"]
+            sql = """
+SELECT
+    fp.period_end AS report_date,
+    fr.announcement_date,
+    i.revenue,
+    i.profit_attrib_shareholders AS net_profit_parent,
+    cf.cfo,
+    r.roe AS roe_weighted,
+    r.gross_margin,
+    r.yoy_revenue_growth,
+    r.yoy_profit_growth AS yoy_net_profit_growth
+FROM company c
+JOIN v_latest_financial_report fr ON fr.company_id = c.company_id
+LEFT JOIN financial_period fp ON fp.period_id = fr.period_id
+LEFT JOIN income_statement_fact i ON i.report_id = fr.report_id
+LEFT JOIN cash_flow_fact cf ON cf.report_id = fr.report_id
+LEFT JOIN financial_ratio_fact r ON r.report_id = fr.report_id
+WHERE c.stock_code IN (%s, %s)
+ORDER BY fp.period_end DESC, fr.announcement_date DESC
+LIMIT 1
+            """.strip()
+            sql_params = tuple(stock_code_candidates)
+        else:
+            ts_code_candidates = [
+                f"{normalized_code}.SS",
+                f"{normalized_code}.SZ",
+                f"{normalized_code}.BJ",
+            ]
+            sql = """
 SELECT
     fr.report_date,
     fr.announcement_date,
@@ -323,7 +350,8 @@ LEFT JOIN financial_ratio_fact r ON r.report_id = fr.report_id
 WHERE c.ticker = %s OR c.ts_code IN (%s, %s, %s)
 ORDER BY fr.report_date DESC, fr.announcement_date DESC
 LIMIT 1
-        """.strip()
+            """.strip()
+            sql_params = (normalized_code, *ts_code_candidates)
 
         try:
             conn = pymysql.connect(
@@ -340,7 +368,7 @@ LIMIT 1
             )
             try:
                 with conn.cursor() as cursor:
-                    cursor.execute(sql, (normalized_code, *ts_code_candidates))
+                    cursor.execute(sql, sql_params)
                     row = cursor.fetchone()
             finally:
                 conn.close()

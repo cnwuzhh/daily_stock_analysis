@@ -201,7 +201,7 @@
 | `FUNDAMENTAL_CACHE_TTL_SECONDS` | 基本面缓存 TTL（秒） | 可选 |
 | `FUNDAMENTAL_CACHE_MAX_ENTRIES` | 基本面缓存最大条目数（避免长时间运行内存增长） | 可选 |
 | `FUNDAMENTAL_MYSQL_ENABLED` | 启用 A 股财务摘要 MySQL 优先读取；未命中或失败时回退 AkShare | 可选 |
-| `FUNDAMENTAL_MYSQL_HOST` / `PORT` / `USER` / `PASSWORD` / `DATABASE` | A 股财务摘要 MySQL 连接参数 | 可选 |
+| `FUNDAMENTAL_MYSQL_HOST` / `PORT` / `USER` / `PASSWORD` / `DATABASE` / `HK_DATABASE` | A 股 / 港股财务摘要 MySQL 连接参数 | 可选 |
 
 > 基本面超时语义（P0）：
 > - 当前采用 `best-effort` 软超时（fail-open），超时会立即降级并继续主流程；
@@ -214,7 +214,7 @@
 >   - `get_stock_info.belong_boards` = 个股所属板块列表；
 >   - `get_stock_info.boards` 为兼容别名，值与 `belong_boards` 相同（未来仅在大版本考虑移除）；
 >   - `get_stock_info.sector_rankings` 与 `fundamental_context.boards.data` 保持一致。
-> - 当 `FUNDAMENTAL_MYSQL_ENABLED=true` 且配置了 MySQL 连接参数时，A 股 `financial_report` / `growth` 会优先读取 MySQL；未命中、连接失败或字段缺失时自动回退到 AkShare，保持 fail-open。
+> - 当 `FUNDAMENTAL_MYSQL_ENABLED=true` 且配置了 MySQL 连接参数时，A 股与港股 `financial_report` / `growth` 会优先读取 MySQL；未命中、连接失败或字段缺失时自动回退到 AkShare，保持 fail-open。港股当前仅开放估值 + 财务摘要，资金流 / 龙虎榜 / 板块榜仍保持 `not_supported`。
 > - 配置 `TICKFLOW_API_KEY` 后，A 股大盘复盘的主要指数行情会优先尝试 TickFlow；若当前套餐支持标的池查询，市场涨跌统计也会优先尝试 TickFlow。失败或权限不足时会回退到现有数据源。
 > - 该行为按能力分层而非仅按“是否有 Key”判断：有限权限套餐仍可获得 TickFlow 指数增强；支持 `CN_Equity_A` 标的池查询的套餐会额外获得 TickFlow 市场统计增强。
 > - TickFlow 官方 quickstart 展示了 `quotes.get(universes=["CN_Equity_A"])` 的正式用法，但真实线上验证确认：不同套餐权限不同，且 `quotes.get(symbols=[...])` 单次有标的数量限制。

@@ -202,6 +202,43 @@ class TestFundamentalAdapter(unittest.TestCase):
         self.assertEqual(result["earnings"]["financial_report"]["revenue"], 1234.0)
         self.assertIn("mysql_financial_lookup:OperationalError", result["errors"])
 
+    def test_fundamental_bundle_supports_hk_mysql_snapshot(self) -> None:
+        adapter = AkshareFundamentalAdapter()
+        mysql_payload = {
+            "growth": {
+                "revenue_yoy": 6.2,
+                "net_profit_yoy": 4.1,
+                "roe": None,
+                "gross_margin": None,
+            },
+            "financial_report": {
+                "report_date": "2024-12-31",
+                "revenue": 660000.0,
+                "net_profit_parent": 197000.0,
+                "operating_cash_flow": None,
+                "roe": None,
+            },
+            "meta": {"source": "mysql:hkfin.v_latest_financial_report"},
+        }
+
+        with patch.object(adapter, "_load_mysql_financial_snapshot", return_value=(mysql_payload, None)), patch.object(
+            adapter,
+            "_call_df_candidates",
+            side_effect=[
+                (None, None, []),
+                (None, None, []),
+                (None, None, []),
+                (None, None, []),
+                (None, None, []),
+            ],
+        ):
+            result = adapter.get_fundamental_bundle("00700.HK")
+
+        self.assertEqual(result["earnings"]["financial_report"]["report_date"], "2024-12-31")
+        self.assertEqual(result["earnings"]["financial_report"]["revenue"], 660000.0)
+        self.assertEqual(result["growth"]["revenue_yoy"], 6.2)
+        self.assertIn("growth:mysql:hkfin.v_latest_financial_report", result["source_chain"])
+
     def test_build_dividend_payload_returns_empty_when_code_not_matched(self) -> None:
         now = datetime.now().strftime("%Y-%m-%d")
         df = pd.DataFrame(

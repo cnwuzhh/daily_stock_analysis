@@ -696,6 +696,7 @@ class Config:
     fundamental_mysql_user: Optional[str] = None
     fundamental_mysql_password: Optional[str] = None
     fundamental_mysql_database: str = "ashare_finance"
+    fundamental_mysql_hk_database: str = "hkfin"
     fundamental_mysql_charset: str = "utf8mb4"
     fundamental_mysql_connect_timeout_seconds: float = 0.8
 
@@ -1341,6 +1342,7 @@ class Config:
             fundamental_mysql_user=os.getenv('FUNDAMENTAL_MYSQL_USER'),
             fundamental_mysql_password=os.getenv('FUNDAMENTAL_MYSQL_PASSWORD'),
             fundamental_mysql_database=os.getenv('FUNDAMENTAL_MYSQL_DATABASE', 'ashare_finance'),
+            fundamental_mysql_hk_database=os.getenv('FUNDAMENTAL_MYSQL_HK_DATABASE', 'hkfin'),
             fundamental_mysql_charset=os.getenv('FUNDAMENTAL_MYSQL_CHARSET', 'utf8mb4'),
             fundamental_mysql_connect_timeout_seconds=parse_env_float(
                 os.getenv('FUNDAMENTAL_MYSQL_CONNECT_TIMEOUT_SECONDS'),
