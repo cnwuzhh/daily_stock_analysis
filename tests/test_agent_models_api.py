@@ -244,6 +244,14 @@ class AgentSkillsEndpointTestCase(unittest.TestCase):
         skill_manager = SimpleNamespace(
             list_skills=lambda: [
                 SimpleNamespace(
+                    name="value_investing",
+                    display_name="价值投资",
+                    description="长期基本面分析",
+                    user_invocable=True,
+                    default_priority=15,
+                    default_active=False,
+                ),
+                SimpleNamespace(
                     name="bull_trend",
                     display_name="多头趋势",
                     description="趋势跟随",
@@ -265,11 +273,11 @@ class AgentSkillsEndpointTestCase(unittest.TestCase):
         with patch("api.v1.endpoints.agent.get_config", return_value=config), patch(
             "src.agent.factory.get_skill_manager",
             return_value=skill_manager,
-        ):
+        ): 
             payload = asyncio.run(agent.get_skills()).model_dump()
 
         self.assertEqual(payload["default_skill_id"], "bull_trend")
-        self.assertEqual([item["id"] for item in payload["skills"]], ["bull_trend", "chan_theory"])
+        self.assertEqual([item["id"] for item in payload["skills"]], ["value_investing", "bull_trend", "chan_theory"])
 
     def test_legacy_strategies_endpoint_preserves_legacy_field_names(self) -> None:
         config = _build_config()
