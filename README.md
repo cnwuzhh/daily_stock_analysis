@@ -133,6 +133,8 @@
 | `SLACK_BOT_TOKEN` | Slack Bot Token（推荐，支持图片上传；同时配置时优先于 Webhook） | 可选 |
 | `SLACK_CHANNEL_ID` | Slack Channel ID（使用 Bot 时需要） | 可选 |
 | `SLACK_WEBHOOK_URL` | Slack Incoming Webhook URL（仅文本，不支持图片） | 可选 |
+| `SLACK_SOCKET_ENABLED` | 启用 Slack Socket Mode 机器人接入（默认 `false`） | 可选 |
+| `SLACK_APP_TOKEN` | Slack Socket Mode App-Level Token（`xapp-...`，需 `connections:write`） | 可选 |
 | `EMAIL_SENDER` | 发件人邮箱（如 `xxx@qq.com`） | 可选 |
 | `EMAIL_PASSWORD` | 邮箱授权码（非登录密码） | 可选 |
 | `EMAIL_RECEIVERS` | 收件人邮箱（多个用逗号分隔，留空则发给自己） | 可选 |
@@ -398,6 +400,8 @@ LITELLM_MODEL=openai/deepseek-chat
 - **多轮对话**：支持追问上下文，会话历史持久化保存
 - **导出与发送**：可将会话导出为 .md 文件，或发送到已配置的通知渠道
 - **价值投资报告归档**：配置 `VALUE_INVESTING_REPO_HOST_PATH`（宿主机目录挂载）和容器内的 `VALUE_INVESTING_REPO_PATH` 后，`value_investing` 会从外部 `StockAnalysis_Tonardo` 仓库的 `我的投资体系报告库/价值投资体系.txt` 读取提示词，并可按 `我的投资体系报告库/README.md` 规范把分析结果写入 `01_个股深度分析/<年份>/`；若同时开启 `VALUE_INVESTING_REPORT_AUTO_PUSH=true`，系统会自动提交并推送到该外部仓库。容器化部署建议同时配置 `VALUE_INVESTING_GIT_AUTHOR_NAME` 与 `VALUE_INVESTING_GIT_AUTHOR_EMAIL`，避免 git commit 因缺少 author identity 失败。
+- **Slack AI 问股**：支持 Slack Socket Mode；配置 `SLACK_SOCKET_ENABLED=true`、`SLACK_APP_TOKEN`、`SLACK_BOT_TOKEN` 后，可直接在 Slack 中用 `/ask 用价值投资分析五粮液`、私聊机器人发送普通文本，或在群聊中 `@机器人` 后发送问题来触发 AI 问股，无需公网回调 URL。价值投资场景会继续复用基本面预取、报告归档与自动推送链路。
+- **Slack 模式查询**：在 Slack 中发送“支持哪些分析模式”“当前支持哪些分析模式”“help”等消息，机器人会返回当前已启用的股票分析模式列表、默认模式和简要说明。
 - **后台执行**：切换页面不中断分析，完成时 Dock 问股图标显示角标
 - **Bot 命令**：`/ask` 技能分析（支持多股对比）、`/chat` 自由对话
 - **自定义策略（Skill）**：在 `strategies/` 目录下新建 YAML 文件或在自定义 skill 目录中放入 `SKILL.md` bundle，即可添加新的交易策略，无需写代码

@@ -506,6 +506,21 @@ def start_bot_stream_clients(config: Config) -> None:
         except Exception as exc:
             logger.error(f"[Main] Failed to start Feishu Stream client: {exc}")
 
+    # 启动 Slack Socket Mode 客户端
+    if getattr(config, 'slack_socket_enabled', False):
+        try:
+            from bot.platforms import start_slack_socket_background, SLACK_SDK_AVAILABLE
+            if SLACK_SDK_AVAILABLE:
+                if start_slack_socket_background():
+                    logger.info("[Main] Slack Socket client started in background.")
+                else:
+                    logger.warning("[Main] Slack Socket client failed to start.")
+            else:
+                logger.warning("[Main] Slack Socket enabled but SDK is missing.")
+                logger.warning("[Main] Run: pip install slack_sdk")
+        except Exception as exc:
+            logger.error(f"[Main] Failed to start Slack Socket client: {exc}")
+
 
 def _resolve_scheduled_stock_codes(stock_codes: Optional[List[str]]) -> Optional[List[str]]:
     """Scheduled runs should always read the latest persisted watchlist."""

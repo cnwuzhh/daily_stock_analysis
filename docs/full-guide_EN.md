@@ -541,6 +541,37 @@ SLACK_CHANNEL_ID=C01234567
 SLACK_WEBHOOK_URL=https://hooks.slack.com/services/T.../B.../xxx
 ```
 
+**Slack AI Ask-Stock (Socket Mode)**
+
+If you want to trigger AI ask-stock directly inside Slack without exposing a public callback URL, use Socket Mode:
+
+1. Enable Socket Mode in your Slack App
+2. Create an App-Level Token with the `connections:write` scope
+3. Create a Slash Command (for example `/ask`)
+4. Ensure your Bot Token includes at least: `commands`, `chat:write`, `files:write` (if image upload is needed)
+5. Configure:
+
+```bash
+SLACK_SOCKET_ENABLED=true
+SLACK_APP_TOKEN=xapp-...
+SLACK_BOT_TOKEN=xoxb-...
+```
+
+Notes:
+- Socket Mode receives Slash Commands over a WebSocket connection, so no public callback URL is required
+- The current implementation listens for `/ask` and reuses the existing AI ask-stock pipeline
+- It also supports direct messages to the bot and `@bot` message triggers in channels
+- The final answer is posted back to the channel where the command was triggered
+- Value-investing requests continue to reuse the existing fundamental prefetch, report archive, and auto-push flow
+- Sending messages like "what analysis modes are supported" or `help` will return the currently available analysis mode list
+
+Recommended Slack Bot scopes:
+- `commands`
+- `chat:write`
+- `app_mentions:read`
+- `im:history`
+- `channels:history` / `groups:history` (if you want channel `@bot` message triggers)
+
 ### Pushover (iOS/Android Push)
 
 [Pushover](https://pushover.net/) is a cross-platform push service supporting iOS and Android.

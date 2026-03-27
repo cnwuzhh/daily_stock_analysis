@@ -47,6 +47,8 @@ imgkit>=1.2.0              # Markdown 转图片（需安装 wkhtmltopdf）
 fake-useragent>=1.4.0       # 随机 User-Agent 防封禁
 httpx[socks]                # HTTP 客户端 + SOCKS 代理支持（OpenAI 可选依赖）
 dingtalk-stream >= 0.24.3    # 钉钉 Stream SDK
+slack_sdk>=3.35.0            # Slack Socket Mode SDK
+slack_bolt>=1.23.0           # Slack Bolt Socket Mode command handling
 # 数据库
 # SQLite 是 Python 内置，无需额外安装
 PyMySQL>=1.1.0              # A股财报 MySQL 优先数据源

@@ -573,6 +573,7 @@ class Config:
     slack_webhook_url: Optional[str] = None  # Slack Incoming Webhook URL
     slack_bot_token: Optional[str] = None  # Slack Bot Token (xoxb-...)
     slack_channel_id: Optional[str] = None  # Slack 频道 ID (Bot 模式必填)
+    slack_app_token: Optional[str] = None  # Slack Socket Mode App Token (xapp-...)
 
     # AstrBot 通知配置
     astrbot_token: Optional[str] = None
@@ -754,6 +755,7 @@ class Config:
     dingtalk_app_key: Optional[str] = None      # 应用 AppKey
     dingtalk_app_secret: Optional[str] = None   # 应用 AppSecret
     dingtalk_stream_enabled: bool = False       # 是否启用 Stream 模式（无需公网IP）
+    slack_socket_enabled: bool = False          # 是否启用 Slack Socket Mode（无需公网IP）
     
     # 企业微信机器人（回调模式）
     wecom_corpid: Optional[str] = None              # 企业 ID
@@ -1213,6 +1215,7 @@ class Config:
             slack_webhook_url=os.getenv('SLACK_WEBHOOK_URL'),
             slack_bot_token=os.getenv('SLACK_BOT_TOKEN'),
             slack_channel_id=os.getenv('SLACK_CHANNEL_ID'),
+            slack_app_token=os.getenv('SLACK_APP_TOKEN'),
             astrbot_url=os.getenv('ASTRBOT_URL'),
             astrbot_token=os.getenv('ASTRBOT_TOKEN'),
             single_stock_notify=os.getenv('SINGLE_STOCK_NOTIFY', 'false').lower() == 'true',
@@ -1288,6 +1291,7 @@ class Config:
             dingtalk_app_key=os.getenv('DINGTALK_APP_KEY'),
             dingtalk_app_secret=os.getenv('DINGTALK_APP_SECRET'),
             dingtalk_stream_enabled=os.getenv('DINGTALK_STREAM_ENABLED', 'false').lower() == 'true',
+            slack_socket_enabled=os.getenv('SLACK_SOCKET_ENABLED', 'false').lower() == 'true',
             # 企业微信机器人
             wecom_corpid=os.getenv('WECOM_CORPID'),
             wecom_token=os.getenv('WECOM_TOKEN'),

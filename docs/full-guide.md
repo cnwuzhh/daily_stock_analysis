@@ -640,6 +640,37 @@ SLACK_CHANNEL_ID=C01234567
 SLACK_WEBHOOK_URL=https://hooks.slack.com/services/T.../B.../xxx
 ```
 
+**Slack AI 问股（Socket Mode）**
+
+如果希望直接在 Slack 中使用 AI 问股，且不暴露公网回调 URL，推荐使用 Socket Mode：
+
+1. 在 Slack App 中启用 Socket Mode
+2. 创建 App-Level Token，并添加 `connections:write` scope
+3. 创建 Slash Command（例如 `/ask`）
+4. 给 Bot Token 添加至少这些 scopes：`commands`、`chat:write`、`files:write`（若要发图片）
+5. 配置环境变量：
+
+```bash
+SLACK_SOCKET_ENABLED=true
+SLACK_APP_TOKEN=xapp-...
+SLACK_BOT_TOKEN=xoxb-...
+```
+
+说明：
+- Socket Mode 通过 WebSocket 长连接收取 Slash Command，无需公网回调 URL
+- 当前实现会监听 `/ask` 并直接复用现有 AI 问股链路
+- 也支持私聊机器人直接发送文本消息，以及在群聊中 `@机器人` 后发送问股内容
+- 分析结果会回贴到触发命令的频道
+- 价值投资场景会继续复用问股的基本面预取、报告归档与自动推送能力
+- 发送“支持哪些分析模式”“当前支持哪些分析模式”或 `help` 时，会返回当前可用分析模式列表
+
+推荐的 Slack Bot scopes：
+- `commands`
+- `chat:write`
+- `app_mentions:read`
+- `im:history`
+- `channels:history` / `groups:history`（如需在群聊中读取 @机器人 的消息）
+
 ### Pushover（iOS/Android 推送）
 
 [Pushover](https://pushover.net/) 是一个跨平台的推送服务，支持 iOS 和 Android。

@@ -53,6 +53,20 @@ except ImportError:
     get_feishu_stream_client = lambda: None
     start_feishu_stream_background = lambda: False
 
+# Slack Socket Mode（可选）
+try:
+    from bot.platforms.slack_socket import (
+        SlackSocketClient,
+        get_slack_socket_client,
+        start_slack_socket_background,
+        SLACK_SDK_AVAILABLE,
+    )
+except ImportError:
+    SLACK_SDK_AVAILABLE = False
+    SlackSocketClient = None
+    get_slack_socket_client = lambda: None
+    start_slack_socket_background = lambda: False
+
 __all__ = [
     'BotPlatform',
     'DingtalkPlatform',
@@ -70,4 +84,9 @@ __all__ = [
     'get_feishu_stream_client',
     'start_feishu_stream_background',
     'FEISHU_SDK_AVAILABLE',
+    # Slack Socket Mode
+    'SlackSocketClient',
+    'get_slack_socket_client',
+    'start_slack_socket_background',
+    'SLACK_SDK_AVAILABLE',
 ]
